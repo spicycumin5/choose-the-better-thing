@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FocusGuard</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --panel: #fffdf8; --ink: #1f1d1a; --muted: #6f6a61; --line: #e3ded3;
+    --accent: #2f5d50; --accent-ink: #fff; --warn: #a3471f; --ok: #3c7a3a; --soft: #efebe2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161513; --panel: #1f1d1a; --ink: #ece8e0; --muted: #9d978c; --line: #33302b;
+      --accent: #7fb8a4; --accent-ink: #10201b; --warn: #e08a63; --ok: #8cc58a; --soft: #2a2724;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font: 600 22px/1.2 Georgia, serif; margin: 0; letter-spacing: .2px; }
+  h2 { font: 600 17px/1.3 Georgia, serif; margin: 0 0 12px; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+  nav button[aria-current="true"] { background: var(--soft); color: var(--ink); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-top: 16px; }
+  .banner { padding: 10px 14px; border-radius: 8px; background: var(--soft); color: var(--muted); margin-top: 16px; font-size: 14px; }
+  .banner.warn { color: var(--warn); }
+  .status-line { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .sites { list-style: none; margin: 16px 0 0; padding: 0; }
+  .sites li { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); gap: 12px; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--soft); white-space: nowrap; }
+  .pill.blocked { color: var(--warn); }
+  .pill.unlocked { color: var(--ok); }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  select, input, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  textarea { width: 100%; min-height: 110px; resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  .row > div { flex: 1 1 160px; }
+  .row select, .row input { width: 100%; }
+  button.primary, button.secondary { font: inherit; border-radius: 6px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; }
+  button.primary { background: var(--accent); color: var(--accent-ink); }
+  button.secondary { background: none; border-color: var(--line); color: var(--ink); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .error { color: var(--warn); min-height: 1.5em; margin-top: 8px; font-size: 14px; }
+  .countdown { font: 600 64px/1 Georgia, serif; text-align: center; margin: 20px 0 8px; font-variant-numeric: tabular-nums; }
+  blockquote { margin: 16px 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--soft); border-radius: 0 6px 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; border-top: 0; }
+  .table-wrap { overflow-x: auto; }
+  .window { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .window .days { display: flex; gap: 2px; flex-wrap: wrap; }
+  .window .days label { margin: 0; font-weight: 400; font-size: 13px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+  .window .days input { display: none; }
+  .window .days label:has(input:checked) { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .window input[type=time] { width: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 16px; }
+  .grid input { width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FocusGuard</h1>
+    <nav>
+      <button data-tab="status" aria-current="true">Status</button>
+      <button data-tab="history">History</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+  </header>
+  <div id="dry" class="banner" hidden>Dry run: changes go to a scratch hosts file, not the real system.</div>
+  <div id="offline" class="banner warn" hidden>Can't reach the FocusGuard service.</div>
+
+  <!-- ============================ STATUS -->
+  <section id="tab-status">
+    <div class="panel">
+      <p class="status-line" id="status-line">…</p>
+      <p class="muted small" id="status-sub"></p>
+      <ul class="sites" id="sites"></ul>
+    </div>
+
+    <div class="panel" id="unlock-form" hidden>
+      <h2>Emergency unlock</h2>
+      <p class="muted small" id="unlock-cost"></p>
+      <div class="row">
+        <div><label for="u-site">Site</label><select id="u-site"></select></div>
+        <div><label for="u-min">For how long</label><select id="u-min"></select></div>
+      </div>
+      <label for="u-reason" id="u-reason-label">Why are you opening this right now?</label>
+      <textarea id="u-reason" placeholder="Be specific. You'll be able to read this later."></textarea>
+      <div class="muted small" id="u-count"></div>
+      <div class="actions"><button class="primary" id="u-start">Start the wait</button></div>
+      <div class="error" id="u-error"></div>
+    </div>
+
+    <div class="panel" id="cooldown" hidden>
+      <h2 id="cd-title">Waiting</h2>
+      <div class="countdown" id="cd-time">--:--</div>
+      <p class="muted small" style="text-align:center">Stay on this tab. If you switch away or close it for 15 seconds, the timer starts over.</p>
+      <blockquote id="cd-reason"></blockquote>
+      <p class="muted small" id="cd-resets"></p>
+      <div class="actions">
+        <button class="primary" id="cd-unlock" disabled>Unlock</button>
+        <button class="secondary" id="cd-cancel">Never mind, I don't need it</button>
+      </div>
+      <div class="error" id="cd-error"></div>
+    </div>
+  </section>
+
+  <!-- ============================ HISTORY -->
+  <section id="tab-history" hidden>
+    <div class="panel">
+      <h2>Unlock history</h2>
+      <p class="muted small" id="h-summary"></p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Site</th><th>Outcome</th><th>Reason</th></tr></thead>
+        <tbody id="h-rows"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================ SETTINGS -->
+  <section id="tab-settings" hidden>
+    <div class="panel" id="pending-panel" hidden>
+      <h2>Waiting to take effect</h2>
+      <div id="pending-list"></div>
+    </div>
+    <div class="panel">
+      <h2>Settings</h2>
+      <p class="muted small">Stricter changes apply right away. Anything looser (removing a site, fewer blocked hours, a shorter wait) is held for <span id="s-delay-now"></span> hours first.</p>
+      <label for="s-sites">Blocked sites (one per line)</label>
+      <textarea id="s-sites"></textarea>
+      <label>Blocked hours</label>
+      <div id="s-windows"></div>
+      <button class="secondary" id="s-add-window">+ Add time window</button>
+      <div class="grid">
+        <div><label for="s-base">First unlock wait (min)</label><input id="s-base" type="number" min="1"></div>
+        <div><label for="s-cap">Longest wait (min)</label><input id="s-cap" type="number" min="1"></div>
+        <div><label for="s-max">Longest unlock (min)</label><input id="s-max" type="number" min="1"></div>
+        <div><label for="s-reason">Minimum reason length</label><input id="s-reason" type="number" min="10"></div>
+        <div><label for="s-delay">Delay for looser changes (hours)</label><input id="s-delay" type="number" min="1"></div>
+      </div>
+      <div class="actions"><button class="primary" id="s-save">Save</button></div>
+      <div class="error" id="s-error"></div>
+    </div>
+    <div class="panel">
+      <h2>Uninstall</h2>
+      <p class="muted small">Uninstalling goes through the same delay. Once it's ready, blocking stops and <code>uninstall.ps1</code> will run.</p>
+      <div class="actions"><button class="secondary" id="s-uninstall">Request uninstall</button></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+let status = null;
+let settingsDirty = false;
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-FocusGuard": "1" },
+    body: JSON.stringify(body),
+  };
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtWhen = (ts) => {
+  const d = new Date(ts * 1000), now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay ? fmtTime(ts) : d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + " " + fmtTime(ts);
+};
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const unit = () => status && status.seconds_per_minute === 1 ? "sec" : "min";
+const fmtWait = (s) => status && status.seconds_per_minute === 1 ? `${s} sec` : `${Math.round(s / 60)} min`;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ------------------------------------------------------------ tabs
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-current", x === b));
+  for (const t of ["status", "history", "settings"]) $("tab-" + t).hidden = t !== b.dataset.tab;
+  if (b.dataset.tab === "history") loadHistory();
+  if (b.dataset.tab === "settings") { settingsDirty = false; fillSettings(); }
+}));
+
+// ------------------------------------------------------------ status
+async function refresh() {
+  try {
+    status = await api("/api/status");
+    $("offline").hidden = true;
+  } catch {
+    $("offline").hidden = false;
+    return;
+  }
+  $("dry").hidden = !status.dry_run;
+  renderStatus();
+  renderPending();
+  if (!settingsDirty && !$("tab-settings").hidden) fillSettings();
+}
+
+function renderStatus() {
+  const s = status;
+  const blocked = s.sites.filter((x) => x.state === "blocked");
+  if (s.uninstall_approved) {
+    $("status-line").textContent = "Uninstall approved: blocking is off.";
+    $("status-sub").textContent = "Run uninstall.ps1 as administrator to finish removing FocusGuard.";
+  } else if (s.window_active) {
+    $("status-line").textContent = "Blocking is on.";
+    $("status-sub").textContent = s.next_change ? `Sites open again at ${fmtWhen(s.next_change)}.` : "Blocked around the clock.";
+  } else {
+    $("status-line").textContent = "Outside blocked hours. Sites are open.";
+    $("status-sub").textContent = s.next_change ? `Blocking starts at ${fmtWhen(s.next_change)}.` : "";
+  }
+
+  $("sites").innerHTML = s.sites.map((x) => {
+    let right = `<span class="pill ${x.state}">${x.state}</span>`;
+    if (x.state === "unlocked") {
+      const left = Math.max(0, Math.round(x.until - s.now));
+      right = `<span class="muted small">${fmtClock(left)} left</span>
+        <button class="secondary" data-relock="${esc(x.site)}">Re-lock now</button>
+        <span class="pill unlocked">unlocked</span>`;
+    }
+    return `<li><span>${esc(x.site)}</span><span class="row" style="gap:8px;align-items:center">${right}</span></li>`;
+  }).join("");
+  document.querySelectorAll("[data-relock]").forEach((b) =>
+    b.addEventListener("click", () => api("/api/relock", { site: b.dataset.relock }).then(refresh)));
+
+  // Unlock form vs. cooldown view
+  if (s.request) {
+    showCooldown(s.request);
+  } else {
+    $("cooldown").hidden = true;
+    stopHeartbeat();
+    $("unlock-form").hidden = blocked.length === 0;
+    if (blocked.length) fillUnlockForm(blocked);
+  }
+}
+
+function fillUnlockForm(blocked) {
+  const siteSel = $("u-site"), current = siteSel.value;
+  const options = blocked.map((x) => x.site);
+  if ([...siteSel.options].map((o) => o.value).join() !== options.join()) {
+    siteSel.innerHTML = options.map((o) => `<option>${esc(o)}</option>`).join("");
+    if (options.includes(current)) siteSel.value = current;
+  }
+  const minSel = $("u-min"), max = status.config.max_unlock_min;
+  const choices = [...new Set([5, 10, 15, 30, 60].filter((m) => m <= max).concat(max))].sort((a, b) => a - b);
+  if ([...minSel.options].map((o) => o.value).join() !== choices.join()) {
+    const prev = minSel.value;
+    minSel.innerHTML = choices.map((m) => `<option value="${m}">${m} ${unit()}</option>`).join("");
+    minSel.value = choices.includes(+prev) ? prev : choices[0];
+  }
+  const n = status.unlocks_today;
+  $("unlock-cost").textContent =
+    `${n === 0 ? "No unlocks yet today." : `${n} unlock${n > 1 ? "s" : ""} today.`} ` +
+    `This one comes with a ${fmtWait(status.next_cooldown_s)} wait, and each unlock doubles the next one.`;
+  updateReasonUi();
+}
+
+function updateReasonUi() {
+  const site = $("u-site").value || "this";
+  $("u-reason-label").textContent = `Why are you opening ${site} right now?`;
+  const len = $("u-reason").value.trim().replace(/\s+/g, " ").length;
+  const min = status ? status.config.min_reason_chars : 0;
+  $("u-count").textContent = `${len} / ${min} characters`;
+}
+$("u-site").addEventListener("change", updateReasonUi);
+$("u-reason").addEventListener("input", updateReasonUi);
+
+$("u-start").addEventListener("click", async () => {
+  $("u-error").textContent = "";
+  try {
+    const req = await api("/api/unlock/start", {
+      site: $("u-site").value, minutes: +$("u-min").value, reason: $("u-reason").value,
+    });
+    $("u-reason").value = "";
+    status.request = req;
+    showCooldown(req);
+  } catch (e) { $("u-error").textContent = e.message; }
+});
+
+// ------------------------------------------------------------ cooldown
+let hbTimer = null, tickTimer = null, remaining = 0, activeId = null;
+
+function showCooldown(req) {
+  $("unlock-form").hidden = true;
+  $("cooldown").hidden = false;
+  $("cd-title").textContent = `Unlocking ${req.site} for ${req.minutes} ${unit()}`;
+  $("cd-reason").textContent = `“${req.reason}”`;
+  $("cd-resets").textContent = req.resets ? `Timer restarted ${req.resets}× because you left the page.` : "";
+  if (activeId !== req.id) {
+    activeId = req.id;
+    remaining = req.remaining_s;
+    startHeartbeat();
+  }
+  renderCountdown();
+}
+
+function renderCountdown() {
+  $("cd-time").textContent = fmtClock(Math.max(0, remaining));
+  $("cd-unlock").disabled = remaining > 0;
+}
+
+async function beat() {
+  if (document.visibilityState !== "visible" || !activeId) return;
+  try {
+    const r = await api("/api/unlock/heartbeat", { id: activeId });
+    remaining = r.remaining_s;
+    $("cd-resets").textContent = r.resets ? `Timer restarted ${r.resets}× because you left the page.` : "";
+    renderCountdown();
+  } catch { stopHeartbeat(); refresh(); }
+}
+function startHeartbeat() {
+  clearInterval(hbTimer); clearInterval(tickTimer);
+  beat();
+  hbTimer = setInterval(beat, 5000);
+  tickTimer = setInterval(() => { if (remaining > 0) { remaining--; renderCountdown(); } }, 1000);
+}
+function stopHeartbeat() {
+  clearInterval(hbTimer); clearInterval(tickTimer);
+  hbTimer = tickTimer = null; activeId = null;
+}
+// Coming back to the tab: report in right away so the server-side state shows.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && activeId) beat();
+});
+
+$("cd-unlock").addEventListener("click", async () => {
+  $("cd-error").textContent = "";
+  try {
+    await api("/api/unlock/complete", { id: activeId });
+    stopHeartbeat();
+    refresh();
+  } catch (e) {
+    $("cd-error").textContent = e.message;
+    refresh();
+  }
+});
+$("cd-cancel").addEventListener("click", async () => {
+  try { await api("/api/unlock/cancel", { id: activeId }); } catch {}
+  stopHeartbeat();
+  refresh();
+});
+
+// ------------------------------------------------------------ history
+async function loadHistory() {
+  const rows = await api("/api/history");
+  const granted = rows.filter((r) => r.outcome === "granted");
+  const abandoned = rows.length - granted.length;
+  $("h-summary").textContent = rows.length
+    ? `${granted.length} unlock${granted.length === 1 ? "" : "s"}, ${abandoned} given up partway.`
+    : "No unlock attempts yet.";
+  $("h-rows").innerHTML = rows.map((r) => `<tr>
+    <td style="white-space:nowrap">${fmtWhen(r.ts)}</td>
+    <td>${esc(r.site)}</td>
+    <td style="white-space:nowrap">${r.outcome === "granted"
+      ? `unlocked ${r.minutes} ${unit()}<br><span class="muted small">waited ${fmtWait(r.waited_s ?? r.cooldown_s)}</span>`
+      : `<span class="muted">gave up</span>`}</td>
+    <td>${esc(r.reason)}</td></tr>`).join("");
+}
+
+// ------------------------------------------------------------ settings
+function windowRow(w) {
+  const div = document.createElement("div");
+  div.className = "window";
+  div.innerHTML = `<span class="days">${DAYS.map((d, i) =>
+      `<label><input type="checkbox" value="${i}" ${w.days.includes(i) ? "checked" : ""}>${d}</label>`).join("")}</span>
+    <input type="time" class="w-start" value="${w.start}"> to <input type="time" class="w-end" value="${w.end}">
+    <button class="secondary w-del" title="Remove">✕</button>`;
+  div.querySelector(".w-del").addEventListener("click", () => { div.remove(); settingsDirty = true; });
+  return div;
+}
+
+function fillSettings() {
+  if (!status) return;
+  const c = status.config;
+  $("s-delay-now").textContent = c.loosen_delay_hours;
+  $("s-sites").value = c.sites.join("\n");
+  $("s-windows").replaceChildren(...c.schedule.map(windowRow));
+  $("s-base").value = c.cooldown_base_min;
+  $("s-cap").value = c.cooldown_max_min;
+  $("s-max").value = c.max_unlock_min;
+  $("s-reason").value = c.min_reason_chars;
+  $("s-delay").value = c.loosen_delay_hours;
+}
+$("tab-settings").addEventListener("input", () => { settingsDirty = true; });
+$("s-add-window").addEventListener("click", () => {
+  $("s-windows").append(windowRow({ days: [0, 1, 2, 3, 4], start: "09:00", end: "17:00" }));
+  settingsDirty = true;
+});
+
+$("s-save").addEventListener("click", async () => {
+  $("s-error").textContent = "";
+  const config = {
+    sites: $("s-sites").value.split(/\s+/).filter(Boolean),
+    schedule: [...document.querySelectorAll("#s-windows .window")].map((row) => ({
+      days: [...row.querySelectorAll(".days input:checked")].map((i) => +i.value),
+      start: row.querySelector(".w-start").value,
+      end: row.querySelector(".w-end").value,
+    })),
+    cooldown_base_min: +$("s-base").value,
+    cooldown_max_min: +$("s-cap").value,
+    max_unlock_min: +$("s-max").value,
+    min_reason_chars: +$("s-reason").value,
+    loosen_delay_hours: +$("s-delay").value,
+  };
+  try {
+    const r = await api("/api/config", { config });
+    settingsDirty = false;
+    await refresh();
+    fillSettings();
+    $("s-error").textContent = r.pending
+      ? `Stricter parts applied now. The looser parts take effect ${fmtWhen(r.pending.apply_at)}.`
+      : "Saved.";
+  } catch (e) { $("s-error").textContent = e.message; }
+});
+
+$("s-uninstall").addEventListener("click", async () => {
+  const r = await api("/api/uninstall/request", {});
+  await refresh();
+  $("s-error").textContent = `Uninstall unlocks at ${fmtWhen(r.uninstall_at)}.`;
+});
+
+function renderPending() {
+  const p = status.pending, items = [];
+  if (p.config) items.push(`<div class="window" style="justify-content:space-between">
+      <span>Looser settings take effect <b>${fmtWhen(p.config.apply_at)}</b></span>
+      <button class="secondary" data-cancel="config">Cancel change</button></div>`);
+  if (p.uninstall_at && !status.uninstall_approved) items.push(`<div class="window" style="justify-content:space-between">
+      <span>Uninstall unlocks <b>${fmtWhen(p.uninstall_at)}</b></span>
+      <button class="secondary" data-cancel="uninstall">Cancel uninstall</button></div>`);
+  $("pending-panel").hidden = !items.length;
+  $("pending-list").innerHTML = items.join("");
+  document.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", () =>
+    api("/api/pending/cancel", { kind: b.dataset.cancel }).then(refresh)));
+}
+
+refresh();
+setInterval(() => { if (!activeId) refresh(); }, 3000);
+</script>
+</body>
+</html>
