@@ -1,4 +1,4 @@
-# FocusGuard
+# Choose the Better Thing
 
 A Windows site blocker that's annoying to bypass on purpose. During your blocked hours, the sites you list are blocked in every browser. To get in during an emergency you have to:
 
